@@ -896,34 +896,25 @@
     (setf (reqs client) (append (reqs client) (list req))))
   (length (reqs client)))
 
-
 (defmethod %connect ((client sphinx-client))
   #+SPHINX-SEARCH-DEBUG (format t "socket is: ~a~%" (%socket client))
-  (cond ((%socket client))
-        ((%path client)
-         (setf (%socket client)
-               (sockets:make-socket :address-family :local :type :stream
-                                    :local-filename (namestring (%path client)))))
-        (t
-         (setf (%socket client)
-               (sockets:make-socket :address-family :internet :type :stream
-                                    :remote-host (%host client)
-                                    :remote-port (%port client)))))
+  (if (%socket client)
+      (setf (%socket client)
+            (usocket:socket-connect (%host client) (%port client))))
   (let ((v (unpack "N*" (%read-from client 4))))
     (if (< v 1)
         (progn
           (close (%socket client))
           (setf (last-error client) "connection to socket failed")
           ())
-        (progn
-          (sockets:send-to (%socket client)
-                           (string-to-octets (pack "N" 1) :encoding :latin-1))
-          #+SPHINX-SEARCH-DEBUG (format t "recieved version number: ~a~%" v)
+        (let ((stream (usocket:socket-stream (%socket client))))
+          (write-sequence (string-to-octets (pack "N" 1) :encoding :latin-1) stream)
           (%socket client)))))
 
 
 (defmethod %read-from ((client sphinx-client) size)
-  (let ((rec (sockets:receive-from (%socket client) :size size)))
+  (let ((rec (read-sequence (make-array size)
+                            (usocket:socket-stream (%socket client)))))
     #+SPHINX-SEARCH-DEBUG (format t "recieved bytes: ~a~%" rec)
     (let ((res
            (octets-to-string (coerce rec '(vector (unsigned-byte 8)))
@@ -1149,7 +1140,7 @@
   #+SPHINX-SEARCH-DEBUG (format t "writing to socket ~a~%" (%socket client))
   #+SPHINX-SEARCH-DEBUG (format t "data to be sent: ~a~%" data)
   #+SPHINX-SEARCH-DEBUG (format t "data as octets: ~a~%" (string-to-octets data :encoding :latin-1))
-  (sockets:send-to (%socket client) (string-to-octets data :encoding :latin-1)))
+  (write-sequence (string-to-octets data :encoding :latin-1) (usocket:socket-stream (%socket client))))
 
 
 (defun %pack-overrides (overrides)

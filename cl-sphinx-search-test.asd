@@ -8,7 +8,6 @@
 
 (asdf:operate 'asdf:load-op :fiveam)
 (asdf:operate 'asdf:load-op :alexandria)
-(asdf:operate 'asdf:load-op :iolib.sockets)
 
 (in-package :cl-sphinx-search-test-asd)
 
@@ -16,7 +15,7 @@
 (defsystem #:cl-sphinx-search-test
   :name "CL-SPHINX-SEARCH-TEST"
   :version "0.0.1"
-  :maintainer "M.L. Oppermann <M.L.Oppermann@gmail.com>"
+  :maintainer "Oleg Sivokon <olegsivokon@gmail.com>"
   :author "M.L. Oppermann <M.L.Oppermann@gmail.com>"
   :licence "To be determined"
   :description "Test suite for CL-SPHINX-SEARCH"
@@ -27,7 +26,7 @@
                         :components ((:file "package")
                                      (:file "echo-server")
                                      (:file "test"))))
-  :depends-on (:iolib.sockets
+  :depends-on (:usocket
                :cl-pack
                :alexandria
                :babel
