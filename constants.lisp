@@ -1,7 +1,7 @@
 ;;;; -*- Mode: Lisp; Syntax: ANSI-Common-Lisp; Base: 10 -*-
 ;;;; See the LICENSE file for licensing information.
 
-(in-package #:cl-sphinx-search)
+(in-package :cl-sphinx-search)
 
 
 ;; known searchd commands

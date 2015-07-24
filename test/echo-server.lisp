@@ -5,7 +5,7 @@
 ;;;
 ;;;; See the LICENSE file for licensing information.
 
-(in-package #:cl-sphinx-search-test)
+(in-package :cl-sphinx-search-test)
 
 
 (defparameter *port* 9999)

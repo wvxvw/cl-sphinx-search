@@ -8,6 +8,7 @@
 
 (defvar *response-length* ())
 
+;; FIXME: This is really bad...
 (defmacro adv-p (n)
   `(setf p (+ p ,n)))
 
@@ -252,12 +253,11 @@
 "))
 
 
-(defgeneric set-server (client &key host port path)
+(defgeneric set-server (client &key host port)
   (:documentation
    "@arg[client]{a @class{sphinx-client}}
     @arg[host]{the host to connect to when using an INET socket}
     @arg[port]{the port to connect to when using an INET socket}
-    @arg[path]{the path to the unix domain socket when not using INET}
     @return{client}
     @short{Set the server host:port or path to connect to.}
 
@@ -274,22 +274,13 @@
     searchd server via a local (UNIX domain) socket at the specified path.
 "))
 
-(defmethod set-server ((client sphinx-client) &key (host "localhost") (port 3312) path)
-  (cond (path
-         (assert (stringp path))
-         (when (string= path "unix://" :start1 0 :end1 7)
-           (setf path (subseq path 6)))
-         #+SPHINX-SEARCH-DEBUG (format t "set-server -> ~s~%" path)
-         (setf (%path client) path)
-         (setf (%host client) ())
-         (setf (%port client) ()))
-        (t
-         #+SPHINX-SEARCH-DEBUG (format t "set-server -> ~s : ~s~%" host port)
-         (assert (stringp host))
-         (assert (numberp port))
-         (setf (%host client) host)
-         (setf (%port client) port)
-         (setf (%path client) ())))
+(defmethod set-server ((client sphinx-client) &key (host "localhost") (port 3312))
+  #+SPHINX-SEARCH-DEBUG (format t "set-server -> ~s : ~s~%" host port)
+  (assert (stringp host))
+  (assert (numberp port))
+  (setf (%host client) host)
+  (setf (%port client) port)
+  (setf (%path client) ())
   client)
 
 
@@ -377,7 +368,7 @@
   (assert (and (listp values) (> (length values) 0)))
   (dolist (item values)
     (assert (numberp item)))
-  (push `(,+sph-filter-values+ ,attr ,values ,(cond (exclude 1) (t 0))) (filters client))
+  (push `(,+sph-filter-values+ ,attr ,values ,(if exclude 1 0)) (filters client))
   client)
 
 
@@ -419,6 +410,8 @@
   (%set-filter-range client +sph-filter-range+ attr min max :exclude exclude))
 
 
+;; FIXME: This should figure out what type of range to use from the types or
+;; arguments.  This method is not needed.
 (defgeneric set-filter-float-range (client attribute min max &key exclude)
   (:documentation
    "@arg[client]{a @class{sphinx-client}}
@@ -579,6 +572,8 @@
     and sorted by day number in descending order (ie. recent days first).
 "))
 
+;; FIXME: This is a bad API, it should use keywords instead of integer
+;; constants for functions.
 (defmethod set-group-by ((client sphinx-client) attr func &optional sort)
   (assert (and (stringp attr) (stringp sort) (find func +sph-sort-functions+)))
   (setf (group-by client) attr)
@@ -677,7 +672,8 @@
   (setf (select client) select)
   client)
 
-
+;; TODO: I don't think any of the reset functions is really needed.
+;; I'd better remove these to reduce the number of public API.
 (defgeneric reset-filters (client)
   (:documentation
    "@arg[client]{a @class{sphinx-client}}
@@ -770,6 +766,7 @@
   (add-query client query :index index :comment comment)
   (let* ((result (car (run-queries client))))
     (when result
+      ;; TODO: Why do we need both?
       (setf (last-error client) (gethash 'status-message result))
       (setf (last-warning client) (gethash 'status-message result))
       (let ((status (gethash 'status result)))
@@ -861,46 +858,48 @@
 "))
 
 (defmethod add-query ((client sphinx-client) query &key (index "*") (comment ""))
-  (let ((req (concatenate 'string
-                          (pack "NNNNN" (offset client) (limit client) (match-mode client) (rank-mode client) (sort-mode client))
-                          (pack "N/a*" (sort-by client))
-                          (pack "N/a*" (octets-to-string (string-to-octets query :encoding (%encoding client)) :encoding :latin-1))
-                          (pack "N*" (length (weights client)) (weights client))
-                          (pack "N/a*" index)
-                          (pack "N" 1) (pack "Q>" (min-id client)) (pack "Q>" (max-id client))
-                          (pack "N" (length (filters client)))
-                          (%pack-filters (filters client))
-                          (pack "NN/a*" (group-function client) (group-by client))
-                          (pack "N" (max-matches client))
-                          (pack "N/a*" (group-sort client))
-                          (pack "NNN" (cutoff client) (retry-count client) (retry-delay client))
-                          (pack "N/a*" (group-distinct client))
-                          (cond ((geo-anchor client)
-                                 (concatenate 'string
-                                              (pack "N/a*" (first (geo-anchor client)))
-                                              (pack "N/a*" (third (geo-anchor client)))
-                                              (%pack-float (second (geo-anchor client)))
-                                              (%pack-float (fourth (geo-anchor client)))))
-                                (t
-                                 (pack "N" 0)))
-                          (%pack-hash (index-weights client))
-                          (pack "N" (max-query-time client))
-                          (%pack-hash (field-weights client))
-                          (pack "N/a*" comment)
-                          (pack "N" (hash-table-count (overrides client)))
-                          (%pack-overrides (overrides client))
-                          (pack "N/a*" (if (select client)
-                                           (select client)
-                                           "")))))
+  (let ((req
+         (concatenate 'string
+                      (pack "NNNNN" (offset client) (limit client)
+                            (match-mode client) (rank-mode client) (sort-mode client))
+                      (pack "N/a*" (sort-by client))
+                      (pack "N/a*" (octets-to-string
+                                    (string-to-octets query :encoding (%encoding client))
+                                    :encoding :latin-1))
+                      (pack "N*" (length (weights client)) (weights client))
+                      (pack "N/a*" index)
+                      (pack "N" 1) (pack "Q>" (min-id client)) (pack "Q>" (max-id client))
+                      (pack "N" (length (filters client)))
+                      (%pack-filters (filters client))
+                      (pack "NN/a*" (group-function client) (group-by client))
+                      (pack "N" (max-matches client))
+                      (pack "N/a*" (group-sort client))
+                      (pack "NNN" (cutoff client) (retry-count client) (retry-delay client))
+                      (pack "N/a*" (group-distinct client))
+                      (if (geo-anchor client)
+                          (concatenate 'string
+                                       (pack "N/a*" (first (geo-anchor client)))
+                                       (pack "N/a*" (third (geo-anchor client)))
+                                       (%pack-float (second (geo-anchor client)))
+                                       (%pack-float (fourth (geo-anchor client))))
+                          (pack "N" 0))
+                      (%pack-hash (index-weights client))
+                      (pack "N" (max-query-time client))
+                      (%pack-hash (field-weights client))
+                      (pack "N/a*" comment)
+                      (pack "N" (hash-table-count (overrides client)))
+                      (%pack-overrides (overrides client))
+                      (pack "N/a*" (if (select client)
+                                       (select client)
+                                       "")))))
     #+SPHINX-SEARCH-DEBUG (format t "req is: ~a~%" (string-to-octets req :encoding (%encoding client)))
     (setf (reqs client) (append (reqs client) (list req))))
   (length (reqs client)))
 
 (defmethod %connect ((client sphinx-client))
   #+SPHINX-SEARCH-DEBUG (format t "socket is: ~a~%" (%socket client))
-  (if (%socket client)
-      (setf (%socket client)
-            (usocket:socket-connect (%host client) (%port client))))
+  (setf (%socket client)
+            (usocket:socket-connect (%host client) (%port client)))
   (let ((v (unpack "N*" (%read-from client 4))))
     (if (< v 1)
         (progn
@@ -926,22 +925,18 @@
 (defmethod %get-response ((client sphinx-client) &key client-version)
   (multiple-value-bind (status version len) (unpack "n2N" (%read-from client 8))
     #+SPHINX-SEARCH-DEBUG (format t "status: ~a~%version: ~a~%length: ~a~%" status version len)
-    (let ((response ())
-          (left len))
-      (loop
-         (when (<= left 0)
-           (return))
-         #+SPHINX-SEARCH-DEBUG (format t "left: ~a~%" left)
-         (let ((chunk (%read-from client left)))
-           #+SPHINX-SEARCH-DEBUG (format t "chunk: ~a~%" chunk)
-           #+SPHINX-SEARCH-DEBUG (format t "chunk length: ~a~%" (length chunk))
-           (if (> (length chunk) 0)
-               (progn
-                 (setf response (concatenate 'string response chunk))
-                 (setf left (- left (length chunk))))
-               (return))))
-      (close (%socket client))
-      (setf (%socket client) ())
+    (let ((response
+           (with-output-to-string (s)
+             (loop :with left := len
+                :while (> left 0)
+                :for chunk := (%read-from client left)
+                :if (> (length chunk) 0) :do
+                (princ chunk s)
+                (decf left (length chunk))
+                :else :do (return)))))
+      ;; TODO: why close the socket here?
+      ;; (close (%socket client))
+      ;; (setf (%socket client) ())
       (let ((done (length response)))
         #+SPHINX-SEARCH-DEBUG (format t "got response of length: ~a~%raw response: ~a~%" done response)
         (cond ((or (not response)
@@ -965,46 +960,54 @@
                '())
               (t
                (when (< version client-version)
-                 (setf (last-warning client) "searchd v.x.x is older than client's v.y.y, some options might not work"))
+                 (setf (last-warning client)
+                       (format nil "searchd ~a is older than client's ~a, some options might not work"
+                               version client-version)))
                response))))))
 
 
 (defun %parse-response (response n-requests)
-  (let ((p 0)
-        (results ()))
-    (loop for i from 0 to n-requests
-       do
+  (let ((p 0) results)
+    ;; TODO: p must be "position".  The loop revolves around reading incrementally
+    ;; from response, while incrementing position.  This all should be done a lot
+    ;; nicer if it used streams / array pointers.
+    (loop :for i :from 0 :to n-requests :do
        (multiple-value-bind (status new-p message) (%get-response-status response p)
+         ;; FIXME: result should be an object of some sort instead of a hash-table.
+         ;; Conceptually, it must be something like result-set.
          (let ((result (make-hash-table)))
-           (setf p new-p)
-           (setf (gethash 'status-message result) message)
-           (setf (gethash 'status result) status)
+           (setf p new-p
+                 (gethash 'status-message result) message
+                 (gethash 'status result) status)
            (when (or (eql status +searchd-ok+)
                      (eql status +searchd-warning+))
              (let ((attribute-names ()))
                (multiple-value-bind (fields new-p) (%get-fields response p)
-                 (setf p new-p)
-                 (setf (gethash 'fields result) fields))
+                 (setf p new-p
+                       (gethash 'fields result) fields))
                #+SPHINX-SEARCH-DEBUG (format t "after get-fields:~%  p: ~a~%  rest: ~a~%" p (subseq response p))
                (multiple-value-bind (attributes attr-names new-p) (%get-attributes response p)
-                 (setf p new-p)
-                 (setf (gethash 'attributes result) attributes)
-                 (setf attribute-names attr-names))
+                 (setf p new-p
+                       (gethash 'attributes result) attributes
+                       attribute-names attr-names))
                #+SPHINX-SEARCH-DEBUG (format t "after get-attributes:~%  p: ~a~%  rest: ~a~%" p (subseq response p))
-               (multiple-value-bind (matches new-p) (%get-matches response attribute-names (gethash 'attributes result) p)
-                 (setf p new-p)
-                 (setf (gethash 'matches result) matches))
+               (multiple-value-bind (matches new-p)
+                   (%get-matches response attribute-names (gethash 'attributes result) p)
+                 (setf p new-p
+                       (gethash 'matches result) matches))
                #+SPHINX-SEARCH-DEBUG (format t "after get-matches:~%  p: ~a~%  rest: ~a~%" p (subseq response p))
-               (multiple-value-bind (total total-found time word-count) (unpack "N*N*N*N*" (subseq response p (+ p 16)))
+               (multiple-value-bind (total total-found time word-count)
+                   (unpack "N*N*N*N*" (subseq response p (+ p 16)))
                  (adv-p 16)
                  #+SPHINX-SEARCH-DEBUG (format t "total: ~a~%total-found: ~a~%time: ~a~%word-count: ~a~%" total total-found time word-count)
-                 (setf (gethash 'total result) total)
-                 (setf (gethash 'total-found result) total-found)
-                 (let ((time-str (with-output-to-string (s)
-                                   (format s "~,8f" (/ time 1000)))))
-                   (setf (gethash 'time result) time-str))
+                 (setf (gethash 'total result) total
+                       (gethash 'total-found result) total-found
+                       (gethash 'time result) (format nil "~,8f" (/ time 1000)))
                  (let ((words (make-hash-table :test 'equal)))
                    (dotimes (n word-count)
+                     ;; FIXME: This is not the way to deal with unpacking.  Instead of calling
+                     ;; `subseq' one needs to write something like "N[x]".  This whole parsing
+                     ;; is really bogus.
                      (let* ((len (unpack "N*" (subseq response p (+ p 4))))
                             (word (subseq response (+ p 4) (+ p 4 len)))
                             (docs (unpack "N*" (subseq response (+ p 4 len) (+ p 4 len 4))))
@@ -1017,9 +1020,9 @@
                        #+SPHINX-SEARCH-DEBUG (format t "subseq: ~a~%" (subseq response (+ p 4) (+ p 4 len)))
                        #+SPHINX-SEARCH-DEBUG (format t "word: ~a~%docs: ~a~%hits: ~a~%" word docs hits)
                        (adv-p (+ len 12))
-                       (setf (gethash 'docs word-info) docs)
-                       (setf (gethash 'hits word-info) hits)
-                       (setf (gethash word words) word-info)
+                       (setf (gethash 'docs word-info) docs
+                             (gethash 'hits word-info) hits
+                             (gethash word words) word-info)
                        (when (> p *response-length*)
                          (return))))
                    (setf (gethash 'words result) words)))))
@@ -1034,18 +1037,15 @@
         (matches ()))
     #+SPHINX-SEARCH-DEBUG (format t "get-matches:~%  start: ~a~%  rest: ~a~%" start (subseq response start))
     #+SPHINX-SEARCH-DEBUG (format t "  count: ~a~%  id-64: ~a~%" count id-64)
+    ;; FIXME: Same as above, this shouldn't use `subseq' and increment position.
+    ;; Instead it needs to use stream / array pointers.
     (dotimes (i count)
-      (let ((data (make-hash-table :test 'equal)))
-        (cond ((not (eql id-64 0))
-               (setf (gethash "doc" data) (unpack "Q>" (subseq response p (+ p 8))))
-               (adv-p 8)
-               (setf (gethash "weight" data) (unpack "N*" (subseq response p (+ p 4))))
-               (adv-p 4))
-              (t
-               (setf (gethash "doc" data) (unpack "N*" (subseq response p (+ p 4))))
-               (adv-p 4)
-               (setf (gethash "weight" data) (unpack "N*" (subseq response p (+ p 4))))
-               (adv-p 4)))
+      (let ((data (make-hash-table :test 'equal))
+            (doc (if (zerop id-64) 4 8)))
+        (setf (gethash "doc" data) (unpack "Q>" (subseq response p (+ p doc))))
+        (adv-p doc)
+        (setf (gethash "weight" data) (unpack "N*" (subseq response p (+ p 4))))
+        (adv-p 4)
         #+SPHINX-SEARCH-DEBUG (format t "  -> doc: ~a~%  -> weight: ~a~%" (gethash "doc" data) (gethash "weight" data))
         (dolist (attr attribute-names)
           (cond ((eql (gethash attr attributes) +sph-attr-bigint+)
@@ -1151,8 +1151,8 @@
                               (pack "N/a*" (gethash 'attr entry))
                               (pack "NN" (gethash 'type entry) (hash-table-count (gethash 'values entry)))
                               (maphash #'(lambda (id v)
+                                           (assert (and (numberp id) (numberp v)))
                                            (concatenate 'string
-                                                        (assert (and (numberp id) (numberp v)))
                                                         (pack "Q>" id)
                                                         (cond ((eql (gethash 'type entry) +sph-attr-float+)
                                                                (%pack-float v))

@@ -3,7 +3,7 @@
 
 (in-package :cl-user)
 
-(defpackage #:cl-sphinx-search-test-asd
+(defpackage :cl-sphinx-search-test-asd
   (:use :cl :asdf))
 
 (asdf:operate 'asdf:load-op :fiveam)
@@ -12,7 +12,7 @@
 (in-package :cl-sphinx-search-test-asd)
 
 
-(defsystem #:cl-sphinx-search-test
+(defsystem :cl-sphinx-search-test
   :name "CL-SPHINX-SEARCH-TEST"
   :version "0.0.1"
   :maintainer "Oleg Sivokon <olegsivokon@gmail.com>"
@@ -26,9 +26,5 @@
                         :components ((:file "package")
                                      (:file "echo-server")
                                      (:file "test"))))
-  :depends-on (:usocket
-               :cl-pack
-               :alexandria
-               :babel
-               :cl-sphinx-search))
+  :depends-on (:usocket :cl-pack :alexandria :babel :cl-sphinx-search))
 
